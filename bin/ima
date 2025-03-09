@@ -1,0 +1,217 @@
+#! /usr/bin/env ruby
+# encoding: utf-8
+
+clee :ima do
+#
+  tldr <<~____
+
+    `ima` is **teh** AI enabled universal unix filter
+
+  ____
+
+#
+  param :input, value: :required
+  param :task, value: :required
+  param :context, value: :required
+
+  param :prompt, :p
+  param :blind, :b
+
+  param :verbose
+  param :force
+
+#
+  run do
+    setup!
+    load!
+    run_task!
+  end
+
+#
+  run '.init' do
+    setup!
+    init!
+  end
+
+#
+  run '.pp' do
+    load!
+    pp @task
+  end
+
+  run '.prompt' do
+    load!
+    puts @task.prompt
+  end
+
+#
+  def setup!
+    return if @already_setup
+
+    at_exit do
+      error = $!
+
+      case error
+        when Ima::Abort
+          $stderr.puts("#{ error.message }")
+          exit!(error.status)
+      end
+    end
+
+    @already_setup = true
+  end
+
+# FIXME
+  def init!
+    dir = Ima.dir
+
+    Ima.abort! "#{ dir } already exists" unless @params.has_key?(:force)
+
+    mkdir! "#{ dir }"
+    mkdir! "#{ dir }/tasks"
+    mkdir! "#{ dir }/tmp"
+
+    config = Map.for(groq: {api_key: '#FIXME'})
+    path = Ima.config_path
+    unless test(?e, path)
+      IO.binwrite(path, config.to_yaml)
+    end
+
+    task = <<~____
+      ---
+      system: You are darkly funny.
+      ---
+      Tell me *one* joke about the olden days in france, little goats, cheese, and the future of AI.
+    ____
+    path = Ima.dir('tasks/jest.md')
+    unless test(?e, path)
+      IO.binwrite(path, task)
+    end
+
+    tree! "#{ dir }"
+  end
+
+  def tree!(dir)
+    dir = File.expand_path(dir.to_s)
+    depth = dir.scan("/").size
+
+    puts(dir)
+
+    Dir.glob("#{ dir }/**/**") do |entry|
+      size = entry.scan("/").size - depth
+      indent = ' ' * size
+
+      puts(indent + entry)
+    end
+  end
+
+  def mkdir!(dir)
+    FileUtils.mkdir_p("#{ dir }")
+    FileUtils.touch("#{ dir }/.keep")
+  end
+
+#
+  def load!
+    setup!
+    load_task!
+    load_input!
+    load_context!
+  end
+
+#
+  def load_task!
+    task = params[:task]
+
+    @filter = argv.delete('-')
+    @task = Task.parse(argv, task:)
+
+    if @task.nil?
+      binding.irb
+      puts "TASK MISSING! argv=#{ argv.to_json }, task=#{ task.inspect }"
+      exit 1
+    end
+  end
+
+#
+  def load_input!
+    input = params[:input]
+    blind = params.has_key?(:blind)
+
+    @input =
+      if blind
+        nil
+      else
+        if input
+          IO.binread(input)
+        else
+          if @filter || $stdin.ready?
+            $stdin.read
+          end
+        end
+      end
+
+    @task.input = @input
+  end
+
+#
+  def load_context!
+    @context =
+      case
+        when params[:context]
+          Task.load_context(params[:context])
+
+        when @task.data[:context]
+          Task.load_context(@task.data[:context])
+
+        else
+          Task.load_default_context
+      end
+
+    @task.context = @context
+  end
+
+#
+  def run_task!
+    if params.has_key?(:prompt)
+      puts @task.prompt
+      exit 42
+    end
+
+    completion =
+      completion_for(@task)
+
+    STDOUT.puts(
+      completion
+    )
+  end
+
+#
+  def completion_for(task)
+    system = task.system
+    prompt = task.prompt
+
+    completion = ai_that_shit!(prompt)
+
+    # FIXME
+    completion.gsub!(/^```.*$/, '')
+    completion.gsub!(/```\s*$/, '')
+    completion.gsub!('<OUTPUT>', '')
+    completion.gsub!('</OUTPUT>', '')
+
+    completion.strip
+  end
+
+  def ai_that_shit!(...)
+    completion = AI.completion_for(...)
+  end
+end
+
+BEGIN {
+  bindir = File.expand_path(__dir__)
+  root = File.dirname(bindir)
+  libdir = File.join(root, 'lib')
+
+  require "#{ libdir }/ima.rb"
+
+  include Ima
+}
