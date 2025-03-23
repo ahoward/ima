@@ -4,7 +4,7 @@ NAME
 
 TL;DR;
 --------
-  # FIXME
+  ima is a universal unix filter
 
 INSTALL
 -------
@@ -12,8 +12,10 @@ INSTALL
 
 URI
 ---
-  http://github.com/ahoward/ima
+  https://github.com/ahoward/ima
 
 DESCRIPTION
 -----------
-  # FIXME
+  ima is a universal unix filter that can process both code and prose input,
+  making it a versatile tool for various tasks. It is designed to be simple,
+  efficient, and easy to use. #AI

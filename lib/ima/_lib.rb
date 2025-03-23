@@ -26,10 +26,10 @@ module Ima
       %w[
         fileutils
         io/wait
-        json
         securerandom
         thread
         time
+        json
         yaml
       ]
     end

@@ -105,6 +105,11 @@ module Ima
         data.apply(hash)
       end
 
+      if test(?e, "#{ prefix }.rb")
+        dsl = DSL.read("#{ prefix }.rb")
+        data.apply(dsl.data)
+      end
+
       if test(?e, "#{ prefix }.md")
         md = FrontMatterParser::Parser.parse_file("#{ prefix }.md")
         data.apply(md.front_matter)
@@ -175,12 +180,14 @@ module Ima
       string.encode('UTF-8', 'binary', invalid: :replace, undef: :replace, replace: '')
     end
 
-    def Task.load_context(srcs, max: 10_000) # FIXME
+    def Task.load_context(srcs, max: 11_111) # FIXME
       context = []
       total = 0
       mutex = Mutex.new
 
       srcs = [srcs].compact.flatten.join(' ').scan(%r`[^\s]+`)
+
+      srcs.map!{|src| File.expand_path(src)}
 
       Parallel.each(srcs, in_threads: 8) do |src|
         glob = test(?d, src) ? "#{ src }/**/**" : src
@@ -231,60 +238,122 @@ module Ima
 
     attr_accessor :name
     attr_accessor :data
-    attr_accessor :system
-    attr_accessor :instructions
     attr_accessor :input
     attr_accessor :context
 
     def initialize(name, data = {})
       @name = Task.name_for(name)
       @data = Map.for(data)
-      @system = @data[:system].to_s.strip
-      @instructions = @data[:instructions].to_s.strip
       @input = nil
       @context = nil
+    end
+
+    %w[
+      system
+      instructions
+      model
+      provider
+    ].each do |attr|
+      class_eval <<~____, __FILE__, __LINE__
+        def #{ attr }
+          @data[:#{ attr }]
+        end
+
+        def #{ attr }=(value)
+          @data[:#{ attr }] = value
+        end
+      ____
+    end
+
+    def info
+      Task.pod({
+        name:,
+        data:,
+        input:,
+        context:,
+        prompt:,
+      })
+    end
+
+    def system
+      @data[:system]
+    end
+
+    def instructions
+      @data[:instructions]
+    end
+
+    def model
+      @data[:model]
+    end
+
+    def provider
+      @data[:provider]
     end
 
     def +(other)
       name = Task.squeeze(self.name, other.name)
 
-      system = [self.system.to_s.strip, other.system.to_s.strip].join("\n")
-      instructions = [self.instructions.to_s.strip, other.instructions.to_s.strip].join("\n")
+      system = [self.system, other.system].compact.join("\n").strip
+      instructions = [self.instructions, other.instructions].compact.join("\n").strip
 
       data = self.data.dup.apply(other.data)
-      data[:system] = system
-      data[:instructions] = instructions
+
+      data[:system] = system == '' ? nil : system
+      data[:instructions] = instructions == '' ? nil : instructions
 
       Task.new(name, data)
     end
 
-    def inherit!(other)
-      self
+    def Task.pod(data)
+      case data
+        when Hash
+          {}.tap do |result|
+            data.each do |key, value|
+              result[pod(key)] = pod(value)
+            end
+          end
+        when Array
+          [].tap do |result|
+            data.each do |item|
+              result << pod(item)
+            end
+          end
+        when Map
+          pod(data.as_hash)
+        else
+          JSON.parse(data.to_json)
+      end
     end
 
-    def prompt
+    def prompt(system:nil, instructions:nil, context:nil, input:nil)
       prompt = []
 
-      if Task.present?(@system)
+      system ||= self.system
+      instructions ||= self.instructions
+      context ||= self.context
+      input ||= self.input
+
+      if Task.present?(system)
         prompt << <<~____
 
           Given the following SYSTEM:
 
-          <SYSTEM>\n#{@system}\n</SYSTEM>
+          <SYSTEM>\n#{system}\n</SYSTEM>
         ____
       end
 
-      if Task.present?(@context)
+      if Task.present?(context)
         prompt << <<~____
 
-          Consider the following CONTEXT:
+          And the following CONTEXT in YAML format:
 
-          <CONTEXT>\n#{JSON.pretty_generate(@context)}\n</CONTEXT>
+          <CONTEXT>\n#{Task.pod(context).to_yaml}\n</CONTEXT>
         ____
       end
 
-      if Task.present?(@instructions)
-        if Task.present?(@input)
+      if Task.present?(instructions)
+        if Task.present?(input)
           prompt << <<~____
 
             Your INSTRUCTIONS are as follows:
@@ -292,21 +361,21 @@ module Ima
             <INSTRUCTIONS>
               Carefully consider the INPUT below, then:
 
-              #{@instructions}
+              #{instructions}
             </INSTRUCTIONS>
 
-            <INPUT>\n#{@input}\n</INPUT>
+            <INPUT>\n#{input}\n</INPUT>
           ____
         else
           prompt << <<~____
 
             Your INSTRUCTIONS are as follows:
 
-            <INSTRUCTIONS>\n#{@instructions}\n</INSTRUCTIONS>
+            <INSTRUCTIONS>\n#{instructions}\n</INSTRUCTIONS>
           ____
         end
       else
-        if Task.present?(@input)
+        if Task.present?(input)
           prompt << <<~____
 
             Your INSTRUCTIONS are as follows:
@@ -316,7 +385,7 @@ module Ima
               Then make your best judgement regarding how to respond.
             </INSTRUCTIONS>
 
-            <INPUT>\n#{@input}\n</INPUT>
+            <INPUT>\n#{input}\n</INPUT>
           ____
         else
           prompt << <<~____
