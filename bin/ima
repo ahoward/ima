@@ -23,9 +23,7 @@ clee :ima do
 
 #
   run do
-    setup!
-    load!
-    run_task!
+    ima!
   end
 
 #
@@ -35,10 +33,33 @@ clee :ima do
   end
 
 #
+  run '.debug' do
+    params[:debug] = true
+    ima!
+  end
 
+#
   run '.prompt' do
+    params[:prompt] = true
+    ima!
+  end
+
+#
+  run '.tasks' do
+    puts Ima.tasks
+  end
+
+  run '.task' do
+    setup!
     load!
-    puts @task.prompt
+    puts @task.as_hash.to_yaml
+  end
+
+#
+  def ima!
+    setup!
+    load!
+    run_task!
   end
 
 #
@@ -119,7 +140,7 @@ clee :ima do
   def load_task!
     task = params[:task]
 
-    @filter = argv.delete('-')
+    @filter = argv.delete('-') || !$stdin.tty?
     @task = Task.parse(argv, task:)
 
     if @task.nil?
@@ -134,16 +155,15 @@ clee :ima do
     blind = params.has_key?(:blind)
 
     @input =
-      if blind
-        nil
-      else
-        if input
+      case
+        when blind
+          nil
+        when input
           IO.binread(input)
+        when @filter
+          $stdin.read
         else
-          if @filter || $stdin.ready?
-            $stdin.read
-          end
-        end
+          nil
       end
 
     @task.input = @input
@@ -155,14 +175,15 @@ clee :ima do
     blind = params.has_key?(:blind)
 
     @context =
-      if blind
-        nil
-      else
-        if context
+      case
+        when blind
+          nil
+        when context == '@default'
+          Task.load_default_context
+        when context
           Task.load_context(context)
         else
-          Task.load_default_context
-        end
+          nil
       end
 
     @task.context = @context
@@ -172,7 +193,12 @@ clee :ima do
   def run_task!
     if params.has_key?(:debug)
       puts @task.info.to_yaml
-      exit(1)
+      return
+    end
+
+    if params.has_key?(:prompt)
+      puts @task.prompt
+      return
     end
 
     completion =

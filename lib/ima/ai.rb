@@ -22,11 +22,8 @@ module Ima
       end
     end
 
-    def AI.count_tokens(*args)
-      string = args.join("\n")
-      words = string.scan(/\w+/)
-      words_per_token = 3.0/4.0
-      (words.size * 1/words_per_token).to_i + 420
+    def AI.count_tokens(*args, padding: 420)
+      Util.count_tokens(*args) + padding
     end
 
     class Groq
@@ -37,10 +34,10 @@ module Ima
         )
       end
 
-      def Groq.model_id
+      def Groq.model
         Ima.cast(
-          Ima.setting_for(:groq, :model_id){ 'llama-3.3-70b-versatile' },
-          #Ima.setting_for(:groq, :model_id){ 'qwen-2.5-coder-32b' },
+          Ima.setting_for(:groq, :model){ 'meta-llama/llama-4-scout-17b-16e-instruct' },
+          #Ima.setting_for(:groq, :model){ 'qwen-2.5-coder-32b' },
           :string
         )
       end
@@ -58,12 +55,12 @@ module Ima
       @@RATE_LIMTER = RateLimiter.new(name: 'groq', rpm: @@RPM - 1)
 
       attr_reader :api_key
-      attr_reader :model_id
+      attr_reader :model
       attr_reader :timeout
 
-      def initialize(api_key:nil, model_id:nil, timeout:nil)
+      def initialize(api_key:nil, model:nil, timeout:nil)
         @api_key = api_key || Groq.api_key
-        @model_id = model_id || Groq.model_id
+        @model = model || Groq.model
         @timeout = timeout || Groq.timeout
       end
 
@@ -71,7 +68,7 @@ module Ima
         args = kws[:client] || {}
 
         args[:api_key] = (kws[:api_key] || api_key)
-        args[:model_id] = (kws[:model_id] || kws[:model] || model_id)
+        args[:model_id] = (kws[:model_id] || kws[:model] || model)
         args[:timeout] = (kws[:timeout] || timeout)
 
         ::Groq::Client.new(**args)
@@ -93,11 +90,11 @@ module Ima
 
         messages =
           [].tap do |m|
-            if Task.present?(system)
+            if Util.present?(system)
               m << {'role' => 'system', 'content' => system.to_s}
             end
 
-            if Task.present?(prompt)
+            if Util.present?(prompt)
               m << {'role' => 'user', 'content' => prompt.to_s}
             end
           end

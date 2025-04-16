@@ -14,6 +14,14 @@ module Ima
       Map.for({
         dir:,
         verbose:,
+        groq: {
+          prose: {
+            model: 'meta-llama/llama-4-scout-17b-16e-instruct'
+          },
+          code: {
+            model: 'meta-llama/llama-4-scout-17b-16e-instruct'
+          },
+        }
       })
     )
   end
@@ -78,9 +86,27 @@ module Ima
   end
 
 #
+  def Ima.tasks
+    task_dir = Ima.dir('tasks')
+
+    [].tap do |tasks|
+      Path.for(task_dir).glob do |entry|
+        next if test(?d, entry)
+        prefix = entry.relative_to(task_dir).split('.').first
+        tasks << "/#{ prefix }"
+      end
+
+      tasks.sort!
+    end
+  end
+
+#
   require_relative 'ima/error.rb'
+  require_relative 'ima/util.rb'
+  require_relative 'ima/path.rb'
   require_relative 'ima/cast.rb'
   require_relative 'ima/rate_limiter.rb'
   require_relative 'ima/ai.rb'
   require_relative 'ima/task.rb'
+  require_relative 'ima/task/dsl.rb'
 end

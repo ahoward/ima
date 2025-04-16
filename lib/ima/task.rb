@@ -22,6 +22,13 @@ module Ima
         end
       end
 
+      global =
+        if Task.exist?('/global')
+          Task.build('/global')
+        else
+          nil
+        end
+
       if task.nil? && Task.exist?('/default')
         task = '/default'
       end
@@ -33,6 +40,10 @@ module Ima
       end
 
       return nil if task.nil?
+
+      if global
+        global.apply!(task)
+      end
 
       argv.shift if shift
 
@@ -99,15 +110,15 @@ module Ima
             when ext =~ /json/
               JSON.parse(buf)
             else
-              raise file
+              raise "WTF? `#{ file }`"
           end
 
         data.apply(hash)
       end
 
       if test(?e, "#{ prefix }.rb")
-        dsl = DSL.read("#{ prefix }.rb")
-        data.apply(dsl.data)
+        hash = DSL.read("#{ prefix }.rb")
+        data.apply(hash)
       end
 
       if test(?e, "#{ prefix }.md")
@@ -131,16 +142,6 @@ module Ima
       data =
         {
           system: <<~____,
-            - you are a universal unix filter, and always produce simple,
-              plaintext, line based output.
-            - you are adept at understanding both CODE and PROSE input.
-            - your job is to filter input lines, relaying those that do not
-              require modification to the output, and altering or enhancing
-              those that do, based on your INSTRUCTIONS
-            - when you do not undertand a task, you make your best guess
-              rather than asking for clarification.
-            - you are strictly business, quiet, and neither explain yourself
-              nor add commentary unless explicity asked.
           ____
 
           instructions: <<~____,
@@ -150,7 +151,7 @@ module Ima
       new('/builtin', data)
     end
 
-    def Task.squeeze(a, b)
+    def Task.squeeze(a, b) # squeeze(/foo/bar/, /foo/bar/baz) -> /foo/bar/baz
       a = a.to_s.scan %r`[^/]+`
       b = b.to_s.scan %r`[^/]+`
 
@@ -171,16 +172,12 @@ module Ima
       '/' + parts.join('/')
     end
 
-    def Task.present?(value)
-      value.to_s.strip.size > 0
-    end
-
     def Task.utf8ify(*args)
       string = args.join
       string.encode('UTF-8', 'binary', invalid: :replace, undef: :replace, replace: '')
     end
 
-    def Task.load_context(srcs, max: 11_111) # FIXME
+    def Task.load_context(srcs, max: (128_000 * 0.80).to_i)
       context = []
       total = 0
       mutex = Mutex.new
@@ -215,10 +212,13 @@ module Ima
     def Task.load_default_context
       repo = %w[ .git ].any?{|it| test(?e, it)}
 
-      if repo
-        load_context(['./lib', './src', './app', './config', './bin'])
-      else
-        []
+      case
+        when test(?d, './.ima/context')
+          load_context(['./.ima/context'])
+        #when repo
+          #load_context(['./lib', './src', './app', './config', './bin'])
+        else
+          []
       end
     end
 
@@ -248,11 +248,19 @@ module Ima
       @context = nil
     end
 
+    def as_hash
+      {
+        'name' => @name,
+        'data' => @data.to_hash,
+        'input' => @input,
+        'context' => @context
+      }
+    end
+
     %w[
       system
       instructions
       model
-      provider
     ].each do |attr|
       class_eval <<~____, __FILE__, __LINE__
         def #{ attr }
@@ -287,15 +295,15 @@ module Ima
       @data[:model]
     end
 
-    def provider
-      @data[:provider]
+    def squeeze(*strings)
+      strings.map{|string| string.to_s.strip}.join("\n").strip
     end
 
     def +(other)
       name = Task.squeeze(self.name, other.name)
 
-      system = [self.system, other.system].compact.join("\n").strip
-      instructions = [self.instructions, other.instructions].compact.join("\n").strip
+      system = squeeze(self.system, other.system)
+      instructions = squeeze(self.instructions, other.instructions)
 
       data = self.data.dup.apply(other.data)
 
@@ -303,6 +311,16 @@ module Ima
       data[:instructions] = instructions == '' ? nil : instructions
 
       Task.new(name, data)
+    end
+
+    def apply!(other)
+      system = squeeze(self.system, other.system)
+      instructions = squeeze(self.instructions, other.instructions)
+
+      other.data[:system] = system
+      other.data[:instructions] = instructions
+
+      self.data.dup.apply(other.data)
     end
 
     def Task.pod(data)
@@ -326,36 +344,40 @@ module Ima
       end
     end
 
-    def prompt(system:nil, instructions:nil, context:nil, input:nil)
+    def prompt(name:nil, system:nil, instructions:nil, context:nil, input:nil)
       prompt = []
 
-      system ||= self.system
+      name         ||= self.name
+      system       ||= self.system
       instructions ||= self.instructions
-      context ||= self.context
-      input ||= self.input
+      context      ||= self.context
+      input        ||= self.input
 
-      if Task.present?(system)
+      prompt << <<~____
+        You have been given the TASK
+
+        <TASK>\n#{ name }\n</TASK>
+      ____
+
+      if Util.present?(system)
         prompt << <<~____
-
           Given the following SYSTEM:
 
           <SYSTEM>\n#{system}\n</SYSTEM>
         ____
       end
 
-      if Task.present?(context)
+      if Util.present?(context)
         prompt << <<~____
-
           And the following CONTEXT in YAML format:
 
           <CONTEXT>\n#{Task.pod(context).to_yaml}\n</CONTEXT>
         ____
       end
 
-      if Task.present?(instructions)
-        if Task.present?(input)
+      if Util.present?(instructions)
+        if Util.present?(input)
           prompt << <<~____
-
             Your INSTRUCTIONS are as follows:
 
             <INSTRUCTIONS>
@@ -368,16 +390,14 @@ module Ima
           ____
         else
           prompt << <<~____
-
             Your INSTRUCTIONS are as follows:
 
             <INSTRUCTIONS>\n#{instructions}\n</INSTRUCTIONS>
           ____
         end
       else
-        if Task.present?(input)
+        if Util.present?(input)
           prompt << <<~____
-
             Your INSTRUCTIONS are as follows:
 
             <INSTRUCTIONS>
@@ -389,7 +409,6 @@ module Ima
           ____
         else
           prompt << <<~____
-
             Your INSTRUCTIONS are as follows:
 
             <INSTRUCTIONS>

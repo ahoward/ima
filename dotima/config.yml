@@ -1,0 +1,7 @@
+groq:
+  api_key: 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
+  prose:
+    model: meta-llama/llama-4-scout-17b-16e-instruct
+  code:
+    #model: qwen-2.5-coder-32b
+    model: meta-llama/llama-4-scout-17b-16e-instruct
