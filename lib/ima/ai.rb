@@ -8,18 +8,70 @@ module Ima
       provider.completion_for(...)
     end
 
-    def AI.json_parse_liberally(json)
-      begin
+    def AI.parse_json(json, liberally: true)
+      if liberally
+        AI.json_parse_liberally(json)
+      else
         JSON.parse(json)
-      rescue => error
-        begin
-          json.gsub!('```json', '')
-          json.gsub!('```', '')
-          JSON.parse(json)
-        rescue
-          raise error
-        end
       end
+    end
+
+    def AI.json_parse_liberally(json)
+      parse = proc do |json|
+        result, errors = nil, []
+
+        begin
+          result = JSON.parse(json)
+        rescue => error
+          errors.push(error)
+
+          begin
+            result = RbJSON5.parse(json)
+          rescue => error
+            errors.push(error)
+          end
+        end
+
+        {result:, errors:}
+      end
+
+      stringbash = proc do |json|
+        json.gsub!('```json', '')
+        json.gsub!('```', '')
+      end
+
+      repair = proc do |json|
+        json = AI.fix_json(json)
+        {json:}
+      end
+
+      parse[json] => result:, errors:
+      return result if errors.empty?
+
+      stringbash[json]
+      parse[json] => result:, errors:
+      return result if errors.empty?
+
+      repair[json] => json:
+      parse[json] => result:, errors:
+      return result if errors.empty?
+
+      raise errors.last
+    end
+
+    def AI.fix_json(json)
+      prompt = <<~____
+        - the following JSON is broken
+        - fix it
+        - return the valid json and *only* the valid JSON
+        - do NOT wrap the JSON with markdown such as '```json` or '```'
+
+        <JSON>
+        #{ json }
+        </JSON>
+      ____
+
+      AI.completion_for(prompt)
     end
 
     def AI.count_tokens(*args, padding: 420)

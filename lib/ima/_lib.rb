@@ -30,6 +30,7 @@ module Ima
         thread
         time
         json
+        rb_json5
         yaml
       ]
     end
