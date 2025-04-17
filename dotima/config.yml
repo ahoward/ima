@@ -1,5 +1,5 @@
 groq:
-  api_key: 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
+  api_key: XXX
   prose:
     model: meta-llama/llama-4-scout-17b-16e-instruct
   code:
